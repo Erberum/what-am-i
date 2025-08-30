@@ -189,5 +189,3 @@ if __name__ == '__main__':
     blockchain.add_block(block2.sign(private_key))
     assert len(blockchain._blocks) == 3
     # TODO: Tests for last_index, last_hash, timestamp
-
-

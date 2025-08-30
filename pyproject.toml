@@ -3,11 +3,12 @@ name = "what-am-i"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Elisei Kambalin",email = "erberum@gmail.com"}
+    { name = "Elisei Kambalin", email = "erberum@gmail.com" }
 ]
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "fastapi[standard] (>=0.116.1,<0.117.0)"
 ]
 
 [tool.poetry]
@@ -18,4 +19,4 @@ requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [project.scripts]
-runserver = ""
+runserver = "poetry run fastapi dev main.py"
