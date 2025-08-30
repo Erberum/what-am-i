@@ -49,10 +49,12 @@ class Block:
         data = block[144:]
         return Block(data, index, previous_hash, public_key, timestamp)
 
-    def __init__(self, data: bytes, index: int, previous_hash: bytes, public_key: bytes, timestamp: float):
+    def __init__(self, data: bytes, index: int, previous_hash: bytes, public_key: bytes, timestamp: float,
+                 signature: bytes = None):
         assert len(previous_hash) == 32, 'Invalid Hash'
         assert len(public_key) == 32, 'Invalid Public Key'
 
+        self.signature = signature
         self.data = data
         self.index = index
         self.previous_hash = previous_hash
@@ -80,7 +82,13 @@ class Block:
         # Block Format (Signature)
         # Signature (64 bytes)
         # ... Block ...
-        return sign(self.hash(), private_bytes=private_key) + self.__serialize_inner()
+        self.signature = sign(self.hash(), private_bytes=private_key)
+
+    def serialize(self):
+        assert self.signature is not None, 'Block needs to be signed before it can be serialized'
+        result = self.signature + self.__serialize_inner()
+        self.verify(result, self.public_key)
+        return result
 
     def __repr__(self):
         return f'Block({self.index}, b\'...{str(self.previous_hash[-8:])[2:-1]}\', {self.timestamp}, {self.data})'
@@ -118,7 +126,8 @@ class BlockChain:
         private_key = generate_private_key()  # Discarded
         public_key = generate_public_key(private_key)
         block_zero = Block(b'', 0, b'0' * 32, public_key, time.time())
-        self.add_block(block_zero.sign(private_key))
+        block_zero.sign(private_key)
+        self.add_block(block_zero.serialize())
 
     @property
     def last_block(self):
@@ -154,10 +163,12 @@ if __name__ == '__main__':
     private_key = generate_private_key()
     public_key = generate_public_key(private_key)
     block = Block(b'test', 0, b'0' * 32, public_key, time.time())
-    Block.verify(block=block.sign(private_key),
+    block.sign(private_key)
+    Block.verify(block=block.serialize(),
                  public_key=public_key)  # Should not throw an error since signature is correct
     try:
-        Block.verify(block=block.sign(private_key) + b'2', public_key=public_key)
+        block.sign(private_key)
+        Block.verify(block=block.serialize() + b'2', public_key=public_key)
         raise AssertionError('Signature incorrect, yet Block.verify() didn\'t throw an exception')
     except InvalidSignature:
         pass  # Expected, since block was tinkered with
@@ -166,13 +177,15 @@ if __name__ == '__main__':
     private_key = generate_private_key()
     public_key = generate_public_key(private_key)
     block = Block(b'test', 0, b'0' * 32, public_key, time.time())
-    serialized = block.sign(private_key)
+    block.sign(private_key)
+    serialized = block.serialize()
     deserialized = Block.deserialize(serialized)
     assert deserialized.index == block.index
     assert deserialized.previous_hash == block.previous_hash
     assert deserialized.timestamp == block.timestamp
     assert deserialized.data == block.data
     assert deserialized.public_key == block.public_key
+    # TODO: Check that can't serialize if not signed
     try:
         Block.deserialize(serialized + b'2')
         raise AssertionError('Signature incorrect, yet Block.deserialize() didn\'t throw an exception')
@@ -184,8 +197,10 @@ if __name__ == '__main__':
     private_key = generate_private_key()
     public_key = generate_public_key(private_key)
     block1 = Block(b'test', blockchain.last_index + 1, blockchain.last_hash, public_key, time.time())
-    blockchain.add_block(block1.sign(private_key))
+    block1.sign(private_key)
+    blockchain.add_block(block1.serialize())
     block2 = Block(b'test', blockchain.last_index + 1, blockchain.last_hash, public_key, time.time())
-    blockchain.add_block(block2.sign(private_key))
+    block2.sign(private_key)
+    blockchain.add_block(block2.serialize())
     assert len(blockchain._blocks) == 3
     # TODO: Tests for last_index, last_hash, timestamp
