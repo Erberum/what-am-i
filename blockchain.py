@@ -1,4 +1,5 @@
 import time
+from copy import deepcopy
 
 import cryptography
 from cryptography.exceptions import InvalidSignature
@@ -72,14 +73,64 @@ class Block:
         result += self.data
         return result
 
-    def serialize(self, private_key: bytes) -> bytes:
+    def hash(self):
+        return sha256(self.__serialize_inner())
+
+    def sign(self, private_key: bytes) -> bytes:
         # Block Format (Signature)
         # Signature (64 bytes)
         # ... Block ...
-        return sign(sha256(self.__serialize_inner()), private_bytes=private_key) + self.__serialize_inner()
+        return sign(self.hash(), private_bytes=private_key) + self.__serialize_inner()
 
     def __repr__(self):
         return f'Block({self.index}, b\'...{str(self.previous_hash[-8:])[2:-1]}\', {self.timestamp}, {self.data})'
+
+
+class BlockChain:
+    @classmethod
+    def verify(cls, blocks: list):
+        prev_block: Block = None
+        for block in blocks:
+            # General block checks
+            assert block.timestamp < time.time()
+            if prev_block is None:
+                prev_block = block
+                assert block.index >= 0
+                continue
+            # Checks with previous block
+            assert block.index == prev_block.index + 1
+            assert block.previous_hash == prev_block.hash()
+            assert block.timestamp >= prev_block.timestamp
+
+    def __init__(self):
+        self._blocks: list[Block] = []
+
+    def add_block(self, block: bytes):
+        block_obj = Block.deserialize(block)
+        self._blocks.append(block_obj)
+        try:
+            self.verify(self._blocks[-2:])  # Check with accordance to previous block
+        except Exception as e:
+            self._blocks.pop()
+            raise e
+
+    def add_block_zero(self):
+        private_key = generate_private_key()  # Discarded
+        public_key = generate_public_key(private_key)
+        block_zero = Block(b'', 0, b'0' * 32, public_key, time.time())
+        self.add_block(block_zero.sign(private_key))
+
+    @property
+    def last_block(self):
+        return self._blocks[-1]
+
+    @property
+    def last_index(self):
+        return self.last_block.index
+
+    @property
+    def last_hash(self):
+        return self.last_block.hash()
 
 
 if __name__ == '__main__':
@@ -103,10 +154,10 @@ if __name__ == '__main__':
     private_key = generate_private_key()
     public_key = generate_public_key(private_key)
     block = Block(b'test', 0, b'0' * 32, public_key, time.time())
-    Block.verify(block=block.serialize(private_key),
+    Block.verify(block=block.sign(private_key),
                  public_key=public_key)  # Should not throw an error since signature is correct
     try:
-        Block.verify(block=block.serialize(private_key) + b'2', public_key=public_key)
+        Block.verify(block=block.sign(private_key) + b'2', public_key=public_key)
         raise AssertionError('Signature incorrect, yet Block.verify() didn\'t throw an exception')
     except InvalidSignature:
         pass  # Expected, since block was tinkered with
@@ -115,7 +166,7 @@ if __name__ == '__main__':
     private_key = generate_private_key()
     public_key = generate_public_key(private_key)
     block = Block(b'test', 0, b'0' * 32, public_key, time.time())
-    serialized = block.serialize(private_key)
+    serialized = block.sign(private_key)
     deserialized = Block.deserialize(serialized)
     assert deserialized.index == block.index
     assert deserialized.previous_hash == block.previous_hash
@@ -127,3 +178,16 @@ if __name__ == '__main__':
         raise AssertionError('Signature incorrect, yet Block.deserialize() didn\'t throw an exception')
     except InvalidSignature:
         pass  # Expected, since block was tinkered with
+
+    blockchain = BlockChain()
+    blockchain.add_block_zero()
+    private_key = generate_private_key()
+    public_key = generate_public_key(private_key)
+    block1 = Block(b'test', blockchain.last_index + 1, blockchain.last_hash, public_key, time.time())
+    blockchain.add_block(block1.sign(private_key))
+    block2 = Block(b'test', blockchain.last_index + 1, blockchain.last_hash, public_key, time.time())
+    blockchain.add_block(block2.sign(private_key))
+    assert len(blockchain._blocks) == 3
+    # TODO: Tests for last_index, last_hash, timestamp
+
+
