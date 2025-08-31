@@ -1,0 +1,260 @@
+<!-- Some AI was used for the front-end -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>What Am I?</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: monospace;
+            background-color: black;
+            color: white;
+            overflow: hidden;
+        }
+
+        #main-info {
+            border: 1px solid white;
+            padding: 1rem 2rem;
+            margin: 1rem auto;
+            width: 450px;
+            text-align: center;
+            position: relative;
+            z-index: 2;
+            background-color: black;
+        }
+
+        #main-info h2 {
+            margin-bottom: 1rem;
+            font-weight: bold;
+        }
+
+        #producer-batch {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        #producer-batch span {
+            color: white;
+        }
+
+        #producer-batch .label {
+            font-weight: bold;
+            margin-right: 0.25rem;
+        }
+
+        #producer-batch a {
+            color: white;
+            text-decoration: underline;
+        }
+
+        #diagram {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        #hoverBox {
+            position: absolute;
+            background-color: black;
+            border: 1px solid white;
+            padding: 8px;
+            font-family: monospace;
+            color: white;
+            pointer-events: none;
+            display: none;
+            z-index: 3;
+            white-space: nowrap;
+        }
+
+        .terminal-button {
+            background-color: black;
+            border: 1px solid white;
+            color: white;
+            cursor: pointer;
+            padding: 0.25rem 0.5rem;
+            font-family: monospace;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            white-space: nowrap;
+            box-sizing: border-box;
+        }
+
+        .terminal-button:hover {
+            background-color: white;
+            color: black;
+        }
+
+        .link {
+            fill: none;
+            stroke: white;
+            stroke-width: 1.5px;
+        }
+
+        #control-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            gap: 0.5rem;
+            z-index: 5;
+        }
+
+        #tree-id-input {
+            background-color: black;
+            border: 1px solid white;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            font-family: monospace;
+            width: 80px;
+        }
+
+        #load-button {
+            background-color: black;
+            border: 1px solid white;
+            color: white;
+            cursor: pointer;
+            padding: 0.25rem 0.75rem;
+            font-family: monospace;
+        }
+
+        #load-button:hover {
+            background-color: white;
+            color: black;
+        }
+    </style>
+</head>
+<body>
+
+<div id="control-panel">
+    <input type="text" id="tree-id-input" placeholder="Enter ID"/>
+    <button id="load-button">Load</button>
+</div>
+
+<div id="main-info">
+    <h2 id="main-title">Loading...</h2>
+    <div id="producer-batch"></div>
+</div>
+
+<div id="diagram"></div>
+<div id="hoverBox"></div>
+
+<script>
+    const hoverBox = document.getElementById('hoverBox');
+    const diagramDiv = document.getElementById('diagram');
+    let width = diagramDiv.clientWidth;
+    let height = diagramDiv.clientHeight;
+
+    const svg = d3.select('#diagram').append('svg')
+        .attr('width', '100%')
+        .attr('height', '100%');
+
+    const g = svg.append('g')
+        .attr('transform', `translate(50,50)`);
+
+    const zoom = d3.zoom().scaleExtent([0.5, 3])
+        .on('zoom', (event) => g.attr('transform', event.transform));
+    svg.call(zoom);
+
+    function loadTree(treeId) {
+        g.selectAll('*').remove();  // Wipe the old tree down
+        fetch(`http://127.0.0.1:8000/api/build_tree/${treeId}`)
+            .then(response => response.json())
+            .then(treeData => {
+                document.getElementById('main-title').innerText = `${treeData.factory_name} - ${treeData.city}`;
+                const batchInfo = `
+          <span><span class="label">Manufacturer:</span> <a href="#">${treeData.factory_name}</a></span>
+          <span><span class="label">Batch:</span> <a href="#">${treeData.batch_size} ${treeData.batch_size_units}</a></span>
+        `;
+                document.getElementById('producer-batch').innerHTML = batchInfo;
+
+                const root = d3.hierarchy(treeData, d => d.children);
+                const treeLayout = d3.tree().size([height - 100, width - 100]);
+                treeLayout(root);
+
+                g.selectAll('path.link')
+                    .data(root.links())
+                    .join('path')
+                    .attr('class', 'link')
+                    .attr('d', d3.linkHorizontal().x(d => d.y).y(d => d.x));
+
+                const tempContainer = d3.select('body').append('div').style('visibility', 'hidden');
+                const widths = root.descendants().map(d => {
+                    const span = tempContainer.append('span').text(`[ ${d.data.name} ]`).node();
+                    const w = span.getBoundingClientRect().width;
+                    span.remove();
+                    return w;
+                });
+                tempContainer.remove();
+                const maxWidth = Math.ceil(Math.max(...widths)) + 24;
+
+                g.selectAll('foreignObject')
+                    .data(root.descendants())
+                    .join('foreignObject')
+                    .attr('x', d => d.y - maxWidth / 2)
+                    .attr('y', d => d.x - 18)
+                    .attr('width', maxWidth)
+                    .attr('height', 36)
+                    .append('xhtml:div')
+                    .style('display', 'flex')
+                    .style('justify-content', 'center')
+                    .style('align-items', 'center')
+                    .html(d => `<button class="terminal-button">[ ${d.data.name} ]</button>`)
+                    .on('mouseenter', (event, d) => {
+                        hoverBox.style.display = 'block';
+                        let compInfo = '';
+                        if (d.data.components && d.data.components.length > 0) {
+                            compInfo = '<br><strong>Components:</strong><br>' + d.data.components.map(c =>
+                                `• ${c[1].name} (${(c[0] * 100).toFixed(1)}%) - Travel Distance: ${c[1].travel_distance}km`
+                            ).join('<br>');
+                        }
+                        hoverBox.innerHTML = `
+              <strong>[ ${d.data.name} ]</strong><br>
+              Batch: [${d.data.batch_size || 'N/A'} ${d.data.batch_size_units || ''}]<br>
+              Location: [${d.data.city || 'N/A'}, ${d.data.country || 'N/A'}]<br>
+              Factory: [${d.data.factory_name || 'N/A'}]<br>
+              Notes: ${d.data.notes || ''}${compInfo}
+            `;
+                    })
+                    .on('mousemove', (event) => {
+                        const offset = 15;
+                        hoverBox.style.left = (event.pageX + offset) + 'px';
+                        hoverBox.style.top = (event.pageY - offset - hoverBox.offsetHeight) + 'px';
+                    })
+                    .on('mouseleave', () => {
+                        hoverBox.style.display = 'none';
+                    });
+            })
+            .catch(err => {
+                console.error('Error fetching tree:', err);
+                document.getElementById('main-title').innerText = 'Failed to load tree';
+            });
+    }
+
+    loadTree(5);
+
+    document.getElementById('load-button').addEventListener('click', () => {
+        const newId = document.getElementById('tree-id-input').value.trim();
+        if (newId) {
+            loadTree(newId);
+        }
+    });
+
+    window.addEventListener('resize', () => {
+        width = diagramDiv.clientWidth;
+        height = diagramDiv.clientHeight;
+    });
+</script>
+</body>
+</html>
