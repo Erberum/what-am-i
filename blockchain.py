@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -103,17 +104,19 @@ class Block:
         return self.signature is not None
 
 
-class BlockChain:
+class Blockchain:
     @classmethod
     def load(cls, path: str, create: bool = False):
         if create and not os.path.exists(path):
-            return BlockChain()
+            blockchain = Blockchain()
+            blockchain.add_block_zero()
+            return blockchain
         with gzip.open(path, 'rb') as rf:
             return cls.from_dump(rf.read())
 
     @classmethod
     def from_dump(cls, dump: bytes):
-        blockchain = BlockChain()
+        blockchain = Blockchain()
         while dump:
             block_size = struct.unpack('>I', dump[:4])[0]
             block = dump[4:4 + block_size]
@@ -137,15 +140,15 @@ class BlockChain:
             assert block.timestamp >= prev_block.timestamp
 
     def __init__(self):
-        self._blocks: list[Block] = []
+        self.blocks: list[Block] = []
 
     def add_block(self, block: bytes):
         block_obj = Block.deserialize(block)
-        self._blocks.append(block_obj)
+        self.blocks.append(block_obj)
         try:
-            self.verify(self._blocks[-2:])  # Check with accordance to previous block
+            self.verify(self.blocks[-2:])  # Check with accordance to previous block
         except Exception as e:
-            self._blocks.pop()
+            self.blocks.pop()
             raise e
 
     def add_block_zero(self):
@@ -157,7 +160,7 @@ class BlockChain:
 
     @property
     def last_block(self):
-        return self._blocks[-1]
+        return self.blocks[-1]
 
     @property
     def last_index(self):
@@ -169,7 +172,7 @@ class BlockChain:
 
     def dump(self) -> bytes:
         result = b''
-        for block in self._blocks:
+        for block in self.blocks:
             block_bytes = block.serialize()
             result += struct.pack(f'>I', len(block_bytes))
             result += block_bytes
@@ -178,6 +181,12 @@ class BlockChain:
     def save(self, path: str):
         with gzip.open(path, 'wb') as wf:
             wf.write(self.dump())
+
+    def get_block(self, index: int):
+        # TODO: Binary search for partial blockchain support
+        block = self.blocks[index]
+        assert block.index == index
+        return block
 
 
 if __name__ == '__main__':
@@ -231,21 +240,26 @@ if __name__ == '__main__':
         pass  # Expected, since block was tinkered with
 
     # Blockchain tests
-    blockchain = BlockChain()
+    blockchain = Blockchain()
     blockchain.add_block_zero()
     private_key = generate_private_key()
     public_key = generate_public_key(private_key)
-    block1 = Block(b'test', blockchain.last_index + 1, blockchain.last_hash, public_key, time.time())
+    block1 = Block(b'block1', blockchain.last_index + 1, blockchain.last_hash, public_key, time.time())
     block1.sign(private_key)
     blockchain.add_block(block1.serialize())
-    block2 = Block(b'test', blockchain.last_index + 1, blockchain.last_hash, public_key, time.time())
+    block2 = Block(b'block2', blockchain.last_index + 1, blockchain.last_hash, public_key, time.time())
     block2.sign(private_key)
     blockchain.add_block(block2.serialize())
-    assert len(blockchain._blocks) == 3
+    assert blockchain.get_block(2).data == b'block2'
+    try:
+        blockchain.get_block(3)
+    except IndexError:
+        pass  # Expected
+    assert len(blockchain.blocks) == 3
     # TODO: Tests for last_index, last_hash, timestamp
 
     # Blockchain saving / loading tests
-    blockchain = BlockChain()
+    blockchain = Blockchain()
     blockchain.add_block_zero()
     private_key = generate_private_key()
     public_key = generate_public_key(private_key)
@@ -253,15 +267,18 @@ if __name__ == '__main__':
     block1.sign(private_key)
     blockchain.add_block(block1.serialize())
     blockchain.save('test.blockchain')
-    blockchain_restored = BlockChain.load('test.blockchain')
+    blockchain_restored = Blockchain.load('test.blockchain')
     os.remove('test.blockchain')
-    assert blockchain_restored._blocks[0].data == blockchain._blocks[0].data
-    assert blockchain_restored._blocks[1].data == blockchain._blocks[1].data
-    assert blockchain_restored._blocks[0].index == blockchain._blocks[0].index
-    assert blockchain_restored._blocks[1].index == blockchain._blocks[1].index
-    assert blockchain_restored._blocks[0].data == blockchain._blocks[0].data
-    assert blockchain_restored._blocks[1].data == blockchain._blocks[1].data
-    assert blockchain_restored._blocks[0].timestamp == blockchain._blocks[0].timestamp
-    assert blockchain_restored._blocks[1].timestamp == blockchain._blocks[1].timestamp
-    assert blockchain_restored._blocks[0].hash() == blockchain._blocks[0].hash()
-    assert blockchain_restored._blocks[1].hash() == blockchain._blocks[1].hash()
+    assert blockchain_restored.blocks[0].data == blockchain.blocks[0].data
+    assert blockchain_restored.blocks[1].data == blockchain.blocks[1].data
+    assert blockchain_restored.blocks[0].index == blockchain.blocks[0].index
+    assert blockchain_restored.blocks[1].index == blockchain.blocks[1].index
+    assert blockchain_restored.blocks[0].data == blockchain.blocks[0].data
+    assert blockchain_restored.blocks[1].data == blockchain.blocks[1].data
+    assert blockchain_restored.blocks[0].timestamp == blockchain.blocks[0].timestamp
+    assert blockchain_restored.blocks[1].timestamp == blockchain.blocks[1].timestamp
+    assert blockchain_restored.blocks[0].hash() == blockchain.blocks[0].hash()
+    assert blockchain_restored.blocks[1].hash() == blockchain.blocks[1].hash()
+
+
+
